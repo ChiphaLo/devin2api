@@ -250,20 +250,18 @@ func TestDemoteRequestAttachmentsBudgets(t *testing.T) {
 	}
 }
 
-// TestDemoteRequestAttachmentsSanitizes 验证合成文本过指纹改写：正文
-// 携带 message 桶指纹句（Claude Code 自我身份句）必须被改写——降级
-// 发生在 sanitizeRequest 之后，不走这道会把指纹直接送上游。
-func TestDemoteRequestAttachmentsSanitizes(t *testing.T) {
+// TestDemoteRequestAttachmentsPreservesText 验证文档正文不被策略文案替换。
+func TestDemoteRequestAttachmentsPreservesText(t *testing.T) {
 	body := "intro\nYou are Claude Code, Anthropic's official CLI for Claude.\noutro"
 	req := docRequest("t", base64.StdEncoding.EncodeToString([]byte(body)), "text/plain", "cc.txt")
 	hits := map[string]int{}
 	out, _ := demoteRequestAttachments(context.Background(), req, true, false, hits)
 	text := demotedTexts(t, out)[1]
-	if strings.Contains(text, "official CLI for Claude") || !strings.Contains(text, "AI coding assistant") {
-		t.Fatalf("fingerprint not sanitized: %q", text)
+	if !strings.Contains(text, body) {
+		t.Fatalf("document body changed: %q", text)
 	}
-	if len(hits) == 0 {
-		t.Fatal("sanitize hits not recorded")
+	if len(hits) != 0 {
+		t.Fatalf("unexpected text rewriting: %v", hits)
 	}
 }
 

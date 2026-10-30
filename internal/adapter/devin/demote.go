@@ -116,7 +116,7 @@ func (adapter *Adapter) attachmentDeniedRecently(model, kind string) bool {
 // 本 lane 的降级决策漏给兄弟 lane——动过的消息克隆新 struct + 新
 // Content 切片 + 新 Messages 切片，未动消息复用原值。
 // demoteDocs/demoteVideos 分开受控：目录能力位按维度独立，上游拒收
-// 哪类就只降级哪类。hits 收下合成文本的指纹改写计数（可传 nil）。
+// 哪类就只降级哪类。合成文本中的正文不做内容策略改写。
 func demoteRequestAttachments(ctx context.Context, request llm.RequestMessages, demoteDocs, demoteVideos bool, hits map[string]int) (llm.RequestMessages, int) {
 	if hits == nil {
 		hits = map[string]int{}
@@ -227,7 +227,7 @@ func demoteDocumentBlock(ctx context.Context, doc llm.DocumentContent, budget *i
 		} else {
 			text = fmt.Sprintf("\n[document: %s — remote document; content not fetched — do not infer contents]\n", label)
 		}
-		return llm.TextContent{Text: sanitizeUpstreamText(text, false, hits)}
+		return llm.TextContent{Text: text}
 	}
 	raw, ok := decodeAttachmentData(doc.Data)
 	var body string
@@ -252,7 +252,7 @@ func demoteDocumentBlock(ctx context.Context, doc llm.DocumentContent, budget *i
 			size = len(doc.Data) / 4 * 3 // 解码失败时按 b64 体量估算
 		}
 		text := fmt.Sprintf("\n[document: %s, %d bytes — content not extracted; do not infer contents]\n", label, size)
-		return llm.TextContent{Text: sanitizeUpstreamText(text, false, hits)}
+		return llm.TextContent{Text: text}
 	}
 	room := demoteInlineBodyCap
 	if *budget < room {
@@ -261,7 +261,7 @@ func demoteDocumentBlock(ctx context.Context, doc llm.DocumentContent, budget *i
 	if room <= 0 {
 		// 总量预算耗尽：后续文档不再内联，占位保留知情。
 		text := fmt.Sprintf("\n[document: %s, %d bytes — content not extracted; do not infer contents]\n", label, len(raw))
-		return llm.TextContent{Text: sanitizeUpstreamText(text, false, hits)}
+		return llm.TextContent{Text: text}
 	}
 	truncated := len(body) > room
 	if truncated {
@@ -278,7 +278,7 @@ func demoteDocumentBlock(ctx context.Context, doc llm.DocumentContent, budget *i
 		b.WriteString("\n[document truncated]")
 	}
 	b.WriteString("\n[/document]\n")
-	return llm.TextContent{Text: sanitizeUpstreamText(b.String(), false, hits)}
+	return llm.TextContent{Text: b.String()}
 }
 
 // demoteVideoBlock 把视频块降级为占位标记：视频体永远不进文本轨
@@ -299,7 +299,7 @@ func demoteVideoBlock(video llm.VideoContent, hits map[string]int) llm.Content {
 	} else {
 		text = fmt.Sprintf("\n[%s, %d bytes — content not extracted; do not infer contents]\n", label, len(video.Data)/4*3)
 	}
-	return llm.TextContent{Text: sanitizeUpstreamText(text, false, hits)}
+	return llm.TextContent{Text: text}
 }
 
 // attachmentDenialKind 判定错误是否上游的附件能力拒收：EndStream 尾帧

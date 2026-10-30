@@ -722,7 +722,9 @@ func ResolveModelAlias(aliases map[string]string, model string) string {
 // 唯一调用路径是解码后的 startStreamPump，这里不再重扫（单个
 // arguments 的 json.Valid 曾被扫三次）。
 func (adapter *Adapter) Stream(ctx context.Context, request llm.RequestMessages) (llm.ResponseStream, error) {
-	request, sanitizeHits := sanitizeRequest(request)
+	// CPA preserves caller text, including literal tool contracts and history.
+	// Upstream policy rejections must remain errors, not trigger paraphrasing.
+	sanitizeHits := make(map[string]int)
 	cfg := adapter.CurrentConfig()
 	model := strings.TrimSpace(request.Model)
 	if model == "" {

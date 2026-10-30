@@ -1,5 +1,7 @@
 # 上游 content-policy 指纹逆向记录
 
+> CPA 集成分支：运行链路不再调用本文的内容改写规则。系统提示、工具描述、用户文本、历史调用与工具结果按原文转换；附件转为文本时也不套用这些规则。上游拒绝仍按真实错误返回，不通过改写内容重试。下文规则仅作为上游原版的历史记录，不代表本分支的运行行为。
+
 > 范围：Devin 上游（`server.codeium.com`）对提示词文案的策略拦截。目标是搞清楚「什么样的句子会被 `permission_denied: blocked by our content policy` 拦下」，并把已实证的触发句沉淀为 `internal/adapter/devin/sanitize.go` 的改写规则。
 >
 > 关联文档：`upstream-debug-playbook.md`（分层排查流程）、`upstream-protocol.md`（wire 级协议结论）。本文只记**指纹层**的结论。
