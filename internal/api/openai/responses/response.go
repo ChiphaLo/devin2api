@@ -61,7 +61,7 @@ type streamItem struct {
 	value strings.Builder
 	// encryptedContent 是可重放的思考签名；空值表示供应商未提供。
 	encryptedContent string
-	// closed 表示 item 已产生 output_item.done。
+	// closed 表示内容块已结束；message 的完成事件待响应终态再发送。
 	closed bool
 	// pendingDone 延迟 reasoning 的收尾事件，等待正文之后才到达的签名帧。
 	pendingDone bool
@@ -331,7 +331,7 @@ func (encoder *StreamEncoder) startText(event llm.ResponseEvent) ([]SSEEvent, er
 	return []SSEEvent{
 		encoder.emit("response.output_item.added", map[string]any{
 			"output_index": item.outputIndex,
-			"item":         map[string]any{"id": item.id, "type": "message", "status": "in_progress", "role": "assistant", "content": []any{}},
+			"item":         map[string]any{"id": item.id, "type": "message", "status": "in_progress", "role": "assistant", "phase": "commentary", "content": []any{}},
 		}),
 		encoder.emit("response.content_part.added", map[string]any{
 			"item_id": item.id, "output_index": item.outputIndex, "content_index": item.contentIndex,
@@ -353,8 +353,9 @@ func (encoder *StreamEncoder) textDelta(event llm.ResponseEvent) ([]SSEEvent, er
 	})}, nil
 }
 
-// endText 关 message item 并发 output_text.done、content_part.done、
-// output_item.done 三帧收尾。
+// endText 关闭文字块并发送 output_text.done、content_part.done。
+// message 的 output_item.done 等到响应终态，
+// 才能区分后续还会调用工具的进度消息与最终答复；正文增量仍即时下发。
 func (encoder *StreamEncoder) endText(event llm.ResponseEvent) ([]SSEEvent, error) {
 	item, err := encoder.item(event.ContentIndex, "message")
 	if err != nil {
@@ -377,7 +378,6 @@ func (encoder *StreamEncoder) endText(event llm.ResponseEvent) ([]SSEEvent, erro
 		encoder.emit("response.content_part.done", map[string]any{
 			"item_id": item.id, "output_index": item.outputIndex, "content_index": item.contentIndex, "part": part,
 		}),
-		encoder.emit("response.output_item.done", map[string]any{"output_index": item.outputIndex, "item": completedItem}),
 	}, nil
 }
 
@@ -561,6 +561,8 @@ func (encoder *StreamEncoder) done(event llm.ResponseEvent) ([]SSEEvent, error) 
 			return nil, fmt.Errorf("cannot finish response with open %s item at output index %d", item.kind, item.outputIndex)
 		}
 	}
+	finalAnswer := event.Reason == llm.StopReasonStop || event.Reason == llm.StopReasonStopSequence
+	events := encoder.finishMessages(finalAnswer)
 	encoder.completed = true
 	response := baseResponse(encoder.responseID, encoder.model, encoder.createdAt, responseStatus(event.Reason))
 	response["output"] = encoder.completedOutput()
@@ -576,7 +578,45 @@ func (encoder *StreamEncoder) done(event llm.ResponseEvent) ([]SSEEvent, error) 
 	} else {
 		response["completed_at"] = time.Now().Unix()
 	}
-	return []SSEEvent{encoder.emit(eventName, map[string]any{"response": response})}, nil
+	return append(events, encoder.emit(eventName, map[string]any{"response": response})), nil
+}
+
+// finishMessages closes text items with the phase Codex uses to group completed work.
+// Only the last text message of a successful response without client tool calls is final.
+func (encoder *StreamEncoder) finishMessages(finalAnswer bool) []SSEEvent {
+	setMessagePhases(encoder.output, finalAnswer)
+	var events []SSEEvent
+	for index, output := range encoder.output {
+		if item, ok := output.(map[string]any); ok && item["type"] == "message" {
+			events = append(events, encoder.emit("response.output_item.done", map[string]any{"output_index": index, "item": item}))
+		}
+	}
+	return events
+}
+
+// setMessagePhases applies identical phase semantics to streaming and JSON responses.
+func setMessagePhases(output []any, finalAnswer bool) {
+	lastMessage := -1
+	for index, outputItem := range output {
+		item, ok := outputItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch item["type"] {
+		case "function_call", "custom_tool_call":
+			finalAnswer = false
+		case "message":
+			lastMessage = index
+		}
+	}
+	for index, outputItem := range output {
+		if item, ok := outputItem.(map[string]any); ok && item["type"] == "message" {
+			item["phase"] = "commentary"
+			if finalAnswer && index == lastMessage {
+				item["phase"] = "final_answer"
+			}
+		}
+	}
 }
 
 // failed 先补发挂起 reasoning 的收尾，再发 response.failed 并关闭流。
@@ -594,6 +634,7 @@ func (encoder *StreamEncoder) failed(event llm.ResponseEvent) []SSEEvent {
 	// 挂起的 reasoning item 先补发收尾再下发失败事件，与 Done 路径一致——
 	// 否则等待尾随签名的 item 会悬空在 output 之外。
 	events := encoder.flushPendingReasoning()
+	events = append(events, encoder.finishMessages(false)...)
 	return append(events, encoder.emit("response.failed", map[string]any{
 		"response": response,
 		"status":   status,
@@ -803,6 +844,7 @@ func outputFromMessage(message *llm.AssistantMessage, toolNameMap map[string]Qua
 	output = append(output, reasonings...)
 	output = append(output, toolCalls...)
 	output = append(output, messages...)
+	setMessagePhases(output, message.StopReason == llm.StopReasonStop || message.StopReason == llm.StopReasonStopSequence)
 	return output, nil
 }
 
