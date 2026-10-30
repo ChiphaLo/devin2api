@@ -19,6 +19,10 @@ import (
 type Request struct {
 	// Model 是请求使用的模型标识。
 	Model string `json:"model"`
+	// Reasoning selects a catalog-backed variant for the CPA model aliases.
+	Reasoning struct {
+		Effort string `json:"effort"`
+	} `json:"reasoning,omitempty"`
 	// Instructions 是独立于 input 的系统提示词。
 	Instructions string `json:"instructions,omitempty"`
 	// Input 是字符串或 Responses input item 数组。
@@ -49,7 +53,7 @@ type Request struct {
 }
 
 // responsesRequestFields 是 DecodeRequest 已消费的顶层字段；其余字段
-// （reasoning/store/service_tier/include 等）上游没有对应物，
+// （store/service_tier/include 等）上游没有对应物，
 // 记入 Dropped 透出而不是静默吞掉。previous_response_id 虽被消费
 // 用于显式拒绝，标记为已读避免空值也落进 dropped。
 var responsesRequestFields = map[string]bool{
@@ -57,6 +61,7 @@ var responsesRequestFields = map[string]bool{
 	"stream": true, "max_output_tokens": true, "temperature": true,
 	"top_p": true, "user": true, "prompt_cache_key": true,
 	"tool_choice": true, "parallel_tool_calls": true,
+	"reasoning":            true,
 	"previous_response_id": true,
 }
 
@@ -131,8 +136,12 @@ func DecodeRequest(data []byte, collectDropped bool) (AdaptedRequest, error) {
 	if request.Model == "" {
 		return AdaptedRequest{}, errors.New("responses request model is required")
 	}
+	resolvedModel, err := resolveReasoningModel(request.Model, request.Reasoning.Effort)
+	if err != nil {
+		return AdaptedRequest{}, err
+	}
 
-	context := llm.RequestMessages{Model: request.Model, SystemPrompt: request.Instructions}
+	context := llm.RequestMessages{Model: resolvedModel, SystemPrompt: request.Instructions}
 	if collectDropped {
 		context.Dropped = append(context.Dropped, common.UnconsumedFields(data, responsesRequestFields)...)
 	}

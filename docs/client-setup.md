@@ -146,6 +146,8 @@ codex exec -m swe-2-max-ws \
 
 ## 共用注意事项
 
+CPA 集成分支为 `swe-2`、`claude-opus-5-5` 和 `claude-sonnet-5-5` 提供标准 Responses `reasoning.effort` 参数，内部选择上游真实档位 ID。不传参数时默认 `medium`；SWE-2 支持 `medium/high/max`，两个 Claude 系列支持 `low/medium/high/xhigh/max`。不支持的档位返回错误，不静默降档。本分支不运行内容策略文本改写，下面的上游原版指纹改写说明不适用。
+
 - **system prompt 指纹**:各客户端的身份提示词可能被上游内容策略拦截 (`permission_denied`)。devin-2api 的 `sanitize.go` 已覆盖 Claude Code 指纹;pi / kimi-code 都会伪装 CC 请求头 + 提示词，自动被同一套规则覆盖。
 - **工具调用配对**:上游强制 call→result 紧邻配对，代理已自动重排，客户端无感。
 - **压缩**:四个客户端都自带上下文压缩，代理无需处理——但自动压缩只在客户端声明的窗口 ≤ 上游真实窗口 (262000) 时才可能先于 prompt-too-long 触发；Codex/CC 的窗口声明见上文各节和 `upstream-debug-playbook.md` 的「客户端上下文窗口配置」。
