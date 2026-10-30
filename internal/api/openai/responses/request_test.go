@@ -576,6 +576,55 @@ func TestDecodeRequestToolOutputPartArray(t *testing.T) {
 	}
 }
 
+// TestDecodeRequestToolOutputPartObject 验证 output 为单个 part 对象
+// （含 input_image）时同样解码为内容块而非字面 JSON 文本。
+func TestDecodeRequestToolOutputPartObject(t *testing.T) {
+	data := []byte(`{"model":"m","input":[
+		{"type":"function_call","call_id":"c1","name":"shot","arguments":"{}"},
+		{"type":"function_call_output","call_id":"c1","output":
+			{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="}
+		}
+	]}`)
+	request, err := DecodeRequest(data, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := request.Context.Messages[1].(llm.ToolResultMessage)
+	if len(result.Content) != 1 {
+		t.Fatalf("tool result content = %#v", result.Content)
+	}
+	if _, ok := result.Content[0].(llm.ImageContent); !ok {
+		t.Fatalf("content[0] = %T, want ImageContent", result.Content[0])
+	}
+}
+
+// TestDecodeRequestToolOutputMixedParts 验证 output 数组混合文本与非文本 part
+// 时正确分离：文本成 TextContent、图片成 ImageContent——CPA 的 Codex exec
+// 工具结果正是此形态。
+func TestDecodeRequestToolOutputMixedParts(t *testing.T) {
+	data := []byte(`{"model":"m","input":[
+		{"type":"function_call","call_id":"c1","name":"exec","arguments":"{}"},
+		{"type":"custom_tool_call_output","call_id":"c1","output":[
+			{"type":"input_text","text":"Script completed\nexit_code:0"},
+			{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="}
+		]}
+	]}`)
+	request, err := DecodeRequest(data, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := request.Context.Messages[1].(llm.ToolResultMessage)
+	if len(result.Content) != 2 {
+		t.Fatalf("tool result content = %#v", result.Content)
+	}
+	if text, ok := result.Content[0].(llm.TextContent); !ok || !strings.Contains(text.Text, "exit_code") {
+		t.Fatalf("content[0] = %#v, want text part", result.Content[0])
+	}
+	if _, ok := result.Content[1].(llm.ImageContent); !ok {
+		t.Fatalf("content[1] = %T, want ImageContent", result.Content[1])
+	}
+}
+
 // TestDecodeRequestTrailingData 验证顶层 JSON 后的尾随内容报错而非静默忽略——
 // 与 anthropic 面的 decoder.More() 检查对齐。
 func TestDecodeRequestTrailingData(t *testing.T) {

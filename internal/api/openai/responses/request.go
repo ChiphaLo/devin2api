@@ -731,8 +731,9 @@ func appendInputItem(context *llm.RequestMessages, raw json.RawMessage, pending 
 }
 
 // decodeToolOutput 解码 function_call_output/custom_tool_call_output 的
-// output：字符串直接成文本；part 数组（可含 input_image——实测上游
-// tool_result 图像子通道有效）按消息内容解码；其余 JSON 原样转文本。
+// output：字符串直接成文本；part 数组或单个 part 对象（可含
+// input_image——实测上游 tool_result 图像子通道有效）按消息内容解码；
+// 其余 JSON 原样转文本。
 // part 解码失败的容忍是刻意的——output 字段本来就允许任意 JSON，降格为
 // 字面文本保住内容（消息路径同形态是 400，因为那里 content 语义是确定的），
 // 但形似 part 序列却解不动的要留 Dropped 对账。
@@ -748,12 +749,31 @@ func decodeToolOutput(context *llm.RequestMessages, raw json.RawMessage) ([]llm.
 		return []llm.Content{llm.TextContent{Text: ""}}, nil
 	}
 	if trimmed[0] == '[' {
+		// part 数组直接复用消息内容解码。
 		content, err := common.DecodeContent(raw, &context.Dropped)
 		if err == nil && len(content) > 0 {
 			return content, nil
 		}
 		if err != nil && toolOutputLooksLikeParts(raw) {
 			context.Dropped = append(context.Dropped, "tool_output:malformed_parts")
+		}
+	}
+	if trimmed[0] == '{' {
+		// 单 part 对象（如 {type:"input_image",image_url:...}）包一层数组
+		// 交给同一解码路径——上游不把裸对象当 content 数组解析。
+		var asPart json.RawMessage
+		if json.Unmarshal(raw, &asPart) == nil {
+			array := make([]json.RawMessage, 1)
+			array[0] = asPart
+			if wrapped, err := json.Marshal(array); err == nil {
+				content, err := common.DecodeContent(wrapped, &context.Dropped)
+				if err == nil && len(content) > 0 {
+					return content, nil
+				}
+				if err != nil && toolOutputLooksLikeParts(wrapped) {
+					context.Dropped = append(context.Dropped, "tool_output:malformed_parts")
+				}
+			}
 		}
 	}
 	return []llm.Content{llm.TextContent{Text: string(raw)}}, nil
