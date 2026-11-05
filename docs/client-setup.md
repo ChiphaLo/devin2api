@@ -146,7 +146,7 @@ codex exec -m swe-2-max-ws \
 
 ## 共用注意事项
 
-CPA 集成分支为 `swe-2`、`claude-opus-5-5` 和 `claude-sonnet-5-5` 提供标准 Responses `reasoning.effort` 参数，内部选择上游真实档位 ID。不传参数时默认 `medium`；SWE-2 支持 `medium/high/max`，两个 Claude 系列支持 `low/medium/high/xhigh/max`。不支持的档位返回错误，不静默降档。本分支不运行内容策略文本改写，下面的上游原版指纹改写说明不适用。
+CPA 集成分支为 `swe-2`、`swe-2-flash`、`claude-opus-5-5` 和 `claude-sonnet-5-5` 提供标准 Responses `reasoning.effort` 参数，内部选择上游真实档位 ID。不传参数时默认 `medium`；SWE-2 与 SWE-2 Flash 支持 `medium/high/max`，两个 Claude 系列支持 `low/medium/high/xhigh/max`。不支持的档位返回错误，不静默降档。本分支不运行内容策略文本改写，下面的上游原版指纹改写说明不适用。
 
 Responses 助手消息通过 `phase` 区分进度与最终答复：需要客户端执行工具的响应标记为 `commentary`；正常完成且没有客户端工具调用的响应，最后一条文本消息标记为 `final_answer`。流式正文增量即时发送，消息完成事件等到响应终态确定后再带上对应 `phase`，并与最终响应 JSON 保持一致。Codex 据此将完成后的执行过程归入可折叠区域；既有会话中已保存的消息不会被修改。
 

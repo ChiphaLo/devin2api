@@ -9,6 +9,7 @@ import (
 func TestCPAReasoningModelParameters(t *testing.T) {
 	for model, levels := range map[string][]string{
 		"swe-2":             {"medium", "high", "max"},
+		"swe-2-flash":       {"medium", "high", "max"},
 		"claude-opus-5-5":   {"low", "medium", "high", "xhigh", "max"},
 		"claude-sonnet-5-5": {"low", "medium", "high", "xhigh", "max"},
 	} {
@@ -31,6 +32,9 @@ func TestCPAReasoningModelParameters(t *testing.T) {
 		`{"model":"claude-opus-5-5","reasoning":{"effort":"none"},"input":"probe"}`,
 		`{"model":"claude-sonnet-5-5","reasoning":{"effort":"ultra"},"input":"probe"}`,
 		`{"model":"swe-2-high","reasoning":{"effort":"max"},"input":"probe"}`,
+		`{"model":"swe-2-flash","reasoning":{"effort":"none"},"input":"probe"}`,
+		`{"model":"swe-2-flash-low","input":"probe"}`,
+		`{"model":"swe-2-flash-high","reasoning":{"effort":"max"},"input":"probe"}`,
 	} {
 		if _, err := DecodeRequest([]byte(raw), true); err == nil {
 			t.Fatalf("unsupported or conflicting effort accepted: %s", raw)
